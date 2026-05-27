@@ -14,6 +14,19 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
+# --- 🌟 專門給 Render 線上環境的強制自動初始化機制 ---
+with app.app_context():
+    db.create_all()  # 確保線上資料庫和所有資料表強制生成
+    admin_name = "光之城 青年牧區"
+    admin = User.query.filter_by(username=admin_name).first()
+    if admin:
+        admin.password = "cotc2026"
+        admin.is_admin = True
+    else:
+        admin = User(username=admin_name, password="cotc2026", is_admin=True)
+        db.session.add(admin)
+    db.session.commit()
+
 # 獲取台灣本地時間
 def taiwan_now():
     return datetime.utcnow() + timedelta(hours=8)
