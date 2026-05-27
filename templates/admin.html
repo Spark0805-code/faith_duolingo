@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>光之城青年牧區 - 管理後台</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark sticky-top">
+        <div class="container px-3 d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2">
+            <span class="navbar-brand mb-0 h1 fw-bold" style="font-size: 18px;">🏰 光之城青年牧區 - 後台</span>
+            <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-light py-1">返回任務首頁</a>
+        </div>
+    </nav>
+
+    <div class="container-fluid my-4 px-3">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="alert alert-success p-2 text-center" style="font-size: 14px;">{{ messages[0] }}</div>
+          {% endif %}
+        {% endwith %}
+
+        <div class="row g-4">
+            <div class="col-12 col-xl-4">
+                <div class="card shadow-sm mb-4" style="border-radius: 10px;">
+                    <div class="card-header bg-primary text-white fw-bold">📢 發布新任務</div>
+                    <div class="card-body p-3">
+                        <form action="{{ url_for('add_mission') }}" method="POST">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold" style="font-size: 14px;">任務名稱</label>
+                                <input type="text" name="title" class="form-control" required placeholder="如：讀完馬太福音第一章">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold" style="font-size: 14px;">任務週期類型</label>
+                                <select name="mission_type" class="form-select">
+                                    <option value="daily">📅 每日任務</option>
+                                    <option value="weekly">🗓️ 每週任務</option>
+                                    <option value="special">✨ 特別任務</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-success w-100 fw-bold">立即上架發布</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm" style="border-radius: 10px; overflow: hidden;">
+                    <div class="card-header bg-dark text-white fw-bold">📋 線上任務管理</div>
+                    <ul class="list-group list-group-flush" style="max-height: 250px; overflow-y: auto;">
+                        {% for m in missions %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center p-2.5" style="font-size: 13px;">
+                            <div class="text-truncate me-2" style="max-width: 75%;">
+                                <span class="badge {% if m.mission_type=='daily' %}bg-success{% elif m.mission_type=='weekly' %}bg-info{% else %}bg-warning text-dark{% endif %} me-1" style="font-size: 10px;">
+                                    {{ m.mission_type }}
+                                </span>
+                                {{ m.title }}
+                            </div>
+                            <form action="{{ url_for('delete_mission', mission_id=m.id) }}" method="POST" onsubmit="return confirm('確定要下架此任務嗎？')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1.5" style="font-size: 11px;">下架</button>
+                            </form>
+                        </li>
+                        {% else %}
+                        <li class="list-group-item text-muted text-center py-3" style="font-size: 13px;">目前無進行中的任務</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+
+            <div class="col-12 col-xl-8">
+                <div class="card shadow-sm" style="border-radius: 10px; overflow: hidden;">
+                    <div class="card-header bg-secondary text-white fw-bold">📊 契友任務完成歷史看板 (橫向滑動查看)</div>
+                    <div class="card-body p-0 table-responsive">
+                        <table class="table table-bordered align-middle text-center mb-0" style="font-size: 13px;">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th style="min-width: 110px; background-color: #212529; position: sticky; left: 0; z-index: 2;">契友名字</th>
+                                    {% for m in missions %}
+                                    <th style="min-width: 120px; max-width: 180px;" class="text-wrap">{{ m.title }}</th>
+                                    {% else %}
+                                    <th>尚未發布任何任務</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for u in users %}
+                                <tr>
+                                    <td style="background-color: #fff; position: sticky; left: 0; z-index: 1; box-shadow: 2px 0 5px rgba(0,0,0,0.05);">
+                                        <button type="button" class="btn btn-link text-decoration-none p-0 fw-bold w-100 text-start ps-2" 
+                                                data-bs-toggle="modal" data-bs-target="#careModal-{{ u.id }}">
+                                            👤 {{ u.username }}
+                                        </button>
+                                    </td>
+                                    {% for m in missions %}
+                                    <td>
+                                        {% if user_status[u.id][m.id] %}
+                                            <span class="text-success fw-bold d-block" style="font-size: 13px;">✅ 已完成</span>
+                                            <small class="text-muted" style="font-size: 10px;">{{ user_status[u.id][m.id] }}</small>
+                                        {% else %}
+                                            <span class="text-muted" style="font-size: 13px;">❌ 未完成</span>
+                                        {% endif %}
+                                    </td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% for u in users %}
+    <div class="modal fade" id="careModal-{{ u.id }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered mx-auto px-2" style="max-width: 480px;">
+            <div class="modal-content text-start" style="border-radius: 12px;">
+                <div class="modal-header bg-info text-white py-2.5">
+                    <h5 class="modal-title fw-bold" style="font-size: 16px;">❤️ 牧養記錄：{{ u.username }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form action="{{ url_for('add_care_log') }}" method="POST">
+                    <div class="modal-body p-3">
+                        <input type="hidden" name="target_user_id" value="{{ u.id }}">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold" style="font-size: 13px;">📝 新增關心筆記</label>
+                            <textarea name="notes" class="form-control text-wrap" rows="3" style="font-size: 14px;" placeholder="輸入今日的關懷近況..." required></textarea>
+                        </div>
+                        <hr class="my-2">
+                        <label class="form-label fw-bold" style="font-size: 13px;">📜 歷史關心紀錄</label>
+                        <div class="list-group" style="max-height: 180px; overflow-y: auto;">
+                            {% if u.care_logs %}
+                                {% for log in u.care_logs|sort(attribute='created_at', reverse=True) %}
+                                <div class="list-group-item p-2 mb-1" style="border-radius: 6px; background-color: #f8f9fa;">
+                                    <small class="text-muted d-block" style="font-size: 10px;">{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                                    <p class="mb-0 text-dark text-wrap" style="font-size: 13px; white-space: normal; word-break: break-all;">{{ log.notes }}</p>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                                <p class="text-muted text-center my-2" style="font-size: 12px;">尚無歷史紀錄</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="modal-footer p-2">
+                        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-sm btn-primary fw-bold">儲存紀錄</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
