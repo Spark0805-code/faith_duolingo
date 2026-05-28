@@ -1,4 +1,5 @@
-flask
-flask-sqlalchemy
-flask-login
-gunicorn
+   flask
+   flask-login
+   flask-pymongo
+   dnspython
+   gunicorn
