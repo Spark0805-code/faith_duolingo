@@ -9,7 +9,7 @@ import random
 app = Flask(__name__, template_folder='templates')
 app.config['SECRET_KEY'] = 'cotc_secret_key_2026'
 
-# 🌟 保持你目前好不容易設定好的 MongoDB Atlas 雲端連線字串
+# 🌟 保持 MongoDB Atlas 雲端連線字串
 MONGO_URL = os.environ.get('MONGO_URI', 'mongodb+srv://Spark:180805@cluster0.b2usebv.mongodb.net/faith_duolingo?retryWrites=true&w=majority&appName=Cluster0')
 app.config["MONGO_URI"] = MONGO_URL
 mongo = PyMongo(app)
@@ -17,16 +17,18 @@ mongo = PyMongo(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# --- 🎯 台灣時間工具（精準比對每週刷新） ---
+# --- 🎯 台灣時間工具 ---
 def get_taiwan_now():
     return datetime.utcnow() + timedelta(hours=8)
 
 def get_current_week_str():
-    # 回傳格式如 "2026-W23" 用來精準判斷是否進入新的一週
     return get_taiwan_now().strftime('%Y-W%W')
 
 def get_taiwan_time_str():
     return get_taiwan_now().strftime('%m-%d %H:%M')
+
+def get_current_month_prefix():
+    return get_taiwan_now().strftime('%m-')
 
 # --- Flask-Login 帳號配接器 ---
 class MongoUser(UserMixin):
@@ -40,7 +42,7 @@ def load_user(user_id):
     user_doc = mongo.db.users.find_one({"_id": ObjectId(user_id)})
     return MongoUser(user_doc) if user_doc else None
 
-# --- 🔄 核心機制：動態檢查並隨機抽取本週任務 ---
+# --- 🔄 隨機抽取本週任務核心邏輯 ---
 def check_and_assign_weekly_missions(user_id):
     user_doc = mongo.db.users.find_one({"_id": ObjectId(user_id)})
     if not user_doc:
@@ -49,18 +51,12 @@ def check_and_assign_weekly_missions(user_id):
     current_week = get_current_week_str()
     assignment = user_doc.get('current_weekly_assignment', {})
     
-    # 如果是新註冊，或者時間已經跨到下一個禮拜了，觸發「重新隨機抽取」
     if not assignment or assignment.get('week_identifier') != current_week:
-        # 1. 從大總庫撈出所有「一般每週任務 (general)」
         general_pool = list(mongo.db.missions_pool.find({"mission_type": "general"}))
-        # 2. 隨機抽出 4 個
         chosen_general = random.sample(general_pool, min(len(general_pool), 4))
-        
-        # 3. 撈出本週有發布的所有「特別任務 (special)」
         special_pool = list(mongo.db.missions_pool.find({"mission_type": "special"}))
         
         assigned_list = []
-        # 填入抽到的一般任務
         for m in chosen_general:
             assigned_list.append({
                 "mission_id": str(m['_id']),
@@ -70,7 +66,6 @@ def check_and_assign_weekly_missions(user_id):
                 "is_completed": False,
                 "mission_type": "general"
             })
-        # 填入當週所有的特別任務（下週沒發布就會自動消失）
         for m in special_pool:
             assigned_list.append({
                 "mission_id": str(m['_id']),
@@ -81,7 +76,6 @@ def check_and_assign_weekly_missions(user_id):
                 "mission_type": "special"
             })
             
-        # 更新進使用者的資料庫文件中
         new_assignment = {
             "week_identifier": current_week,
             "assigned_missions": assigned_list
@@ -125,7 +119,6 @@ def register():
             flash('這個名字已經有人註冊過囉！')
             return render_template('register.html')
             
-        # 註冊存入：帳密、管理員權限、安全問題答案、空的任務與關心結構
         new_user = {
             "username": username,
             "password": password,
@@ -133,7 +126,10 @@ def register():
             "security_answer": security_answer,
             "is_admin": False,
             "current_weekly_assignment": {},
-            "care_logs": []
+            "care_logs": [],
+            "history_logs": [],
+            "reminder_time": "12:00",
+            "notebook": ""
         }
         res = mongo.db.users.insert_one(new_user)
         user_doc = mongo.db.users.find_one({"_id": res.inserted_id})
@@ -154,7 +150,6 @@ def forgot_password():
             flash('找不到該帳號，請檢查名字是否輸入正確！')
             return render_template('forgot_password.html')
             
-        # 🔐 核心防盜鎖：嚴格比對提示答案！不對就絕對不給改！
         if user_doc.get('security_answer') != security_answer:
             flash('安全問題答案錯誤！驗證失敗，無法重設密碼。')
             return render_template('forgot_password.html')
@@ -172,16 +167,43 @@ def forgot_password():
 @app.route('/index')
 @login_required
 def index():
-    # 每次進首頁，先防呆觸發檢查本週是否要換題抽籤
     check_and_assign_weekly_missions(current_user.id)
     
     user_doc = mongo.db.users.find_one({"_id": ObjectId(current_user.id)})
     assignment = user_doc.get('current_weekly_assignment', {})
     assigned_missions = assignment.get('assigned_missions', [])
     
-    return render_template('index.html', user=current_user, assigned_missions=assigned_missions)
+    history_logs = user_doc.get('history_logs', [])
+    month_prefix = get_current_month_prefix()
+    month_completed_count = sum(1 for log in history_logs if log.get('time', '').startswith(month_prefix))
+    
+    reminder_time = user_doc.get('reminder_time', '12:00')
+    notebook = user_doc.get('notebook', '')
+    
+    return render_template('index.html', 
+                           user=current_user, 
+                           assigned_missions=assigned_missions,
+                           month_completed_count=month_completed_count,
+                           reminder_time=reminder_time,
+                           notebook=notebook)
 
-# --- 🔄 進度操作：加減次數與防誤觸機制 ---
+@app.route('/save_reminder', methods=['POST'])
+@login_required
+def save_reminder():
+    reminder_time = request.form.get('reminder_time')
+    if reminder_time:
+        mongo.db.users.update_one({"_id": ObjectId(current_user.id)}, {"$set": {"reminder_time": reminder_time}})
+        flash("提醒時間設定成功！")
+    return redirect(url_for('index'))
+
+@app.route('/save_notebook', methods=['POST'])
+@login_required
+def save_notebook():
+    notebook_content = request.form.get('notebook')
+    mongo.db.users.update_one({"_id": ObjectId(current_user.id)}, {"$set": {"notebook": notebook_content}})
+    flash("靈修筆記已成功儲存！")
+    return redirect(url_for('index'))
+
 @app.route('/update_progress/<string:mission_id>/<string:action>', methods=['POST'])
 @login_required
 def update_progress(mission_id, action):
@@ -195,10 +217,8 @@ def update_progress(mission_id, action):
             if action == 'increase':
                 if m['current_count'] < m['target_count']:
                     m['current_count'] += 1
-                    # 如果加到滿，判定為完成
                     if m['current_count'] == m['target_count']:
                         m['is_completed'] = True
-                        # 額外存入歷史大看板紀錄方便管理員看
                         mongo.db.users.update_one(
                             {"_id": ObjectId(current_user.id)},
                             {"$push": {"history_logs": {"title": m['title'], "time": get_taiwan_time_str()}}}
@@ -207,7 +227,6 @@ def update_progress(mission_id, action):
             elif action == 'decrease':
                 if m['current_count'] > 0:
                     m['current_count'] -= 1
-                    # 只要不滿，狀態回歸未完成
                     m['is_completed'] = False
                     updated = True
             break
@@ -220,7 +239,6 @@ def update_progress(mission_id, action):
         return jsonify({'success': True})
     return jsonify({'success': False, 'message': '無法更動進度'})
 
-# --- 📈 管理員後台核心邏輯 ---
 @app.route('/admin')
 @login_required
 def admin_dashboard():
@@ -231,11 +249,9 @@ def admin_dashboard():
     users = list(mongo.db.users.find({"is_admin": False}))
     missions_pool = list(mongo.db.missions_pool.find())
     
-    # 計算每個大池任務總共有被多少人抽中過或完成過（完成次數）
     for m in missions_pool:
         m['id'] = str(m['_id'])
         m['total_completed_count'] = 0
-        # 掃描所有使用者的歷史紀錄累加
         for u in users:
             history = u.get('history_logs', [])
             m['total_completed_count'] += sum(1 for log in history if log.get('title') == m['title'])
@@ -243,7 +259,6 @@ def admin_dashboard():
     for u in users:
         u['id'] = str(u['_id'])
         u['care_logs'] = sorted(u.get('care_logs', []), key=lambda x: x.get('time', ''), reverse=True)
-        # 讀取每個人目前隨機抽到的清單進度
         u['current_list'] = u.get('current_weekly_assignment', {}).get('assigned_missions', [])
         
     return render_template('admin.html', users=users, missions_pool=missions_pool)
@@ -263,7 +278,7 @@ def add_mission_pool():
             "target_count": target_count,
             "mission_type": mission_type
         })
-        flash("成功加入大任務庫！下週起組員抽籤將會隨機抽到此任務。")
+        flash("成功加入大任務庫！")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/delete_mission_pool/<string:m_id>', methods=['POST'])
@@ -296,7 +311,6 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
-# 自動建立預設管理員防呆
 @app.before_request
 def init_admin():
     admin_name = "光之城 青年牧區"

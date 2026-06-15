@@ -13,33 +13,62 @@
     </style>
 </head>
 <body>
-    <!-- 頂部導覽列 -->
     <nav class="navbar navbar-dark bg-primary shadow-sm mb-4">
         <div class="container d-flex justify-content-between">
             <span class="navbar-brand fw-bold">🏰 光之城青年牧區</span>
-            <div>
+            <div class="d-flex align-items-center">
                 {% if user.is_admin %}
                     <a href="{{ url_for('admin_dashboard') }}" class="btn btn-warning btn-sm fw-bold me-2">⚙️ 管理後台</a>
                 {% endif %}
-                <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm rounded-pill">登出</a>
+                
+                <div class="dropdown">
+                    <button class="btn btn-outline-light btn-sm dropdown-toggle rounded-pill px-3 fw-bold" type="button" id="userMenu" data-bs-toggle="dropdown" aria-expanded="false">
+                        👤 個人功能選單
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow mt-2" aria-labelledby="userMenu">
+                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#reminderModal">🔔 設定提醒時間</a></li>
+                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#notebookModal">📝 我的關懷日誌</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger fw-bold" href="{{ url_for('logout') }}">🚪 安全登出</a></li>
+                    </ul>
+                </div>
             </div>
         </div>
     </nav>
 
     <div class="container" style="max-width: 600px;">
-        <!-- 歡迎卡片 -->
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for msg in messages %}
+                    <div class="alert alert-success alert-dismissible fade show small text-center rounded-3 py-2" role="alert">
+                        {{ msg }}
+                        <button type="button" class="btn-close py-2" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
         <div class="card p-4 mb-4 text-white bg-dark shadow-sm rounded-4">
-            <h4 class="fw-bold mb-1">平安，{{ user.username }} 👋</h4>
-            <p class="small text-white-50 mb-0">🎲 本週隨機任務已發布！完成後按 ➕ 累加次數，挑戰進度條吧！</p>
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h4 class="fw-bold mb-1">平安，{{ user.username }} 👋</h4>
+                    <p class="small text-white-50 mb-2">🎲 本週隨機任務已發布！完成後按 ➕ 累加次數。</p>
+                </div>
+                <span class="badge bg-success fs-6 rounded-3 px-3 py-2 text-end">
+                    🏆 本月已完成: {{ month_completed_count }} 個
+                </span>
+            </div>
+            <div class="text-white-50 small border-top border-secondary pt-2 mt-1">
+                ⏰ 系統將於每天的 <span class="text-warning fw-bold">{{ reminder_time }}</span> 準時提醒您靈修打卡喔！
+            </div>
         </div>
 
         <h5 class="fw-bold text-secondary mb-3">📋 本週大會戰任務看板</h5>
         
         {% if not assigned_missions %}
-            <div class="alert alert-info text-center">後台任務大總庫目前是空的，請聯絡管理員新增任務庫喔！</div>
+            <div class="alert alert-info text-center">後台任務總庫目前是空的，請聯絡管理員新增任務！</div>
         {% endif %}
 
-        <!-- 任務列表區 -->
         {% for m in assigned_missions %}
             <div class="card mission-card p-3 mb-3 bg-white {% if m.is_completed %}border border-success-subtle bg-success-subtle bg-opacity-10{% endif %}">
                 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -53,13 +82,11 @@
                             {{ m.title }}
                         </h6>
                     </div>
-                    <!-- 進度次數看板 -->
                     <span class="badge {% if m.is_completed %}bg-success{% else %}bg-secondary{% endif %} fs-6 px-3 py-2 rounded-pill">
                         🎯 {{ m.current_count }} / {{ m.target_count }}
                     </span>
                 </div>
 
-                <!-- 動態百分比進度條 -->
                 <div class="progress bg-light mb-3">
                     <div class="progress-bar {% if m.is_completed %}bg-success{% else %}bg-warning{% endif %}" 
                          role="progressbar" 
@@ -67,7 +94,6 @@
                     </div>
                 </div>
 
-                <!-- 交互按鈕組（支援加、減防誤觸） -->
                 <div class="d-flex gap-2">
                     {% if m.is_completed %}
                         <button class="btn btn-success w-100 fw-bold disabled rounded-pill">🎉 任務已全部達成！</button>
@@ -83,19 +109,91 @@
         {% endfor %}
     </div>
 
-    <!-- ⚡ AJAX 異步免刷頁更新腳本 -->
+    <div class="modal fade" id="reminderModal" tabindex="-1" aria-labelledby="reminderModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold" id="reminderModalLabel">🔔 設定每日提醒時間</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form action="{{ url_for('save_reminder') }}" method="POST">
+                    <div class="modal-body">
+                        <p class="text-muted small">請設定您每天最方便進行靈修與簽到的時間：</p>
+                        <input type="time" name="reminder_time" class="form-control form-control-lg text-center fw-bold" value="{{ reminder_time }}" required>
+                    </div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary rounded-pill px-4">儲存設定 💾</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="notebookModal" tabindex="-1" aria-labelledby="notebookModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold" id="notebookModalLabel">📝 我的關懷日誌</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form action="{{ url_for('save_notebook') }}" method="POST">
+                    <div class="modal-body">
+                        <p class="text-muted small">可以在這裡記錄您的關懷的進度或是備忘錄</p>
+                        <textarea name="notebook" class="form-control rounded-3" rows="10" placeholder="寫下神今天對你說的話..." style="resize: none;">{{ notebook }}</textarea>
+                    </div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">關閉</button>
+                        <button type="submit" class="btn btn-success rounded-pill px-4">儲存筆記 💾</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // 進度條處理 API
         function changeProgress(missionId, action) {
             fetch(`/update_progress/${missionId}/${action}`, { method: 'POST' })
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    window.location.reload(); //成功後秒刷畫面更新進度條與狀態
+                    window.location.reload();
                 } else {
                     alert(data.message || '操作失敗');
                 }
             });
         }
+
+        // ⏰ 24小時制自動比對鬧鐘功能
+        const targetTime = "{{ reminder_time }}"; 
+        
+        function checkReminder() {
+            if (!targetTime) return;
+            
+            const now = new Date();
+            const currentHours = String(now.getHours()).padStart(2, '0');
+            const currentMinutes = String(now.getMinutes()).padStart(2, '0');
+            const currentTime = `${currentHours}:${currentMinutes}`;
+            
+            if (currentTime === targetTime) {
+                alert("🏰 靈修時間到囉！別忘了給今天的任務點擊簽到，一起在信仰中精進吧！");
+                
+                if (Notification.permission === "granted") {
+                    new Notification("🏰 光之城青年牧區", {
+                        body: "靈修時間到囉！記得回來看本週任務！",
+                    });
+                }
+            }
+        }
+
+        if (window.Notification && Notification.permission !== "granted") {
+            Notification.requestPermission();
+        }
+
+        setInterval(checkReminder, 60000);
+        checkReminder();
     </script>
 </body>
 </html>
